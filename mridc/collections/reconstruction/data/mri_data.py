@@ -135,6 +135,7 @@ class FastMRISliceDataset(Dataset):
         dataset_cache_file: Union[str, Path, os.PathLike] = "dataset_cache.yaml",
         num_cols: Optional[Tuple[int]] = None,
         mask_root: Union[str, Path, os.PathLike] = None,
+        consecutive_slices_rate: Optional[float] = None,
     ):
         """
         Args:
@@ -155,6 +156,8 @@ class FastMRISliceDataset(Dataset):
             dataset_cache_file: Optional; A file in which to cache dataset information for faster load times.
             num_cols: Optional; If provided, only slices with the desired number of columns will be considered.
             mask_root: Path to stored masks.
+            consecutive_slices_rate: Optional; A float between 0 and 1. Selects a percentage of slices of the file to be
+            loaded at  the same time.
 
         Returns:
             object:
@@ -221,6 +224,20 @@ class FastMRISliceDataset(Dataset):
         if num_cols:
             self.examples = [ex for ex in self.examples if ex[2]["encoding_size"][1] in num_cols]  # type: ignore
 
+        # Calculate amount of slices after subsampling
+        self.num_slices = len(self.examples)
+
+        # Create random number generator used for consecutive slice selection and set consecutive slice amount
+        self.rng = np.random.RandomState()
+        if consecutive_slices_rate is None:
+            self.consecutive_slices = 1
+        elif consecutive_slices_rate < 0 or consecutive_slices_rate > 1:
+            raise ValueError(
+                "consecutive_slices_rate is out of range, must be between 0 and 1."
+            )
+        else:
+            self.consecutive_slices = round(consecutive_slices_rate*self.num_slices)
+
     @staticmethod
     def _retrieve_metadata(fname):
         """
@@ -278,16 +295,25 @@ class FastMRISliceDataset(Dataset):
     def __getitem__(self, i: int):
         fname, dataslice, metadata = self.examples[i]
         with h5py.File(fname, "r") as hf:
-            kspace = hf["kspace"][dataslice].astype(np.complex64)
+            # Normal single slice selection
+            if self.consecutive_slices == 1:
+                start_slice = dataslice
+                end_slice = dataslice + 1
+            # Get random subsample of consecutive slices in the dataset
+            else:
+                start_slice = self.rng.randint(0, self.num_slices - self.consecutive_slices)
+                end_slice = start_slice + self.consecutive_slices
+
+            kspace = hf["kspace"][start_slice:end_slice].astype(np.complex64)
 
             if "sensitivity_map" in hf:
-                sensitivity_map = hf["sensitivity_map"][dataslice].astype(np.complex64)
+                sensitivity_map = hf["sensitivity_map"][start_slice:end_slice].astype(np.complex64)
             elif self.sense_root is not None and self.sense_root != "None":
                 with h5py.File(Path(self.sense_root) / Path(str(fname).split("/")[-2]) / fname.name, "r") as sf:
                     sensitivity_map = (
-                        sf["sensitivity_map"][dataslice]
+                        sf["sensitivity_map"][start_slice:end_slice]
                         if "sensitivity_map" in sf or "sensitivity_map" in next(iter(sf.keys()))
-                        else sf["sense"][dataslice]
+                        else sf["sense"][start_slice:end_slice]
                     )
                     sensitivity_map = sensitivity_map.squeeze().astype(np.complex64)
             else:
@@ -297,7 +323,7 @@ class FastMRISliceDataset(Dataset):
                 mask = np.asarray(hf["mask"])
 
                 if mask.ndim == 3:
-                    mask = mask[dataslice]
+                    mask = mask[start_slice:end_slice]
 
             elif self.mask_root is not None and self.mask_root != "None":
                 mask_path = Path(self.mask_root) / Path(str(fname.name).split(".")[0] + ".npy")
@@ -305,12 +331,12 @@ class FastMRISliceDataset(Dataset):
             else:
                 mask = None
 
-            eta = hf["eta"][dataslice].astype(np.complex64) if "eta" in hf else np.array([])
+            eta = hf["eta"][start_slice:end_slice].astype(np.complex64) if "eta" in hf else np.array([])
 
             if "reconstruction_sense" in hf:
                 self.recons_key = "reconstruction_sense"
 
-            target = hf[self.recons_key][dataslice].astype(np.float32) if self.recons_key in hf else None
+            target = hf[self.recons_key][start_slice:end_slice].astype(np.float32) if self.recons_key in hf else None
 
             attrs = dict(hf.attrs)
             attrs.update(metadata)
