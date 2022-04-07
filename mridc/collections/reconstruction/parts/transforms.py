@@ -203,15 +203,31 @@ class MRIDataTransforms:
                 masks = []
                 accs = []
                 for m in self.mask_func:
-                    _masked_kspace, _mask, _acc = apply_mask(
-                        kspace,
-                        m,
-                        seed,
-                        (acq_start, acq_end),
-                        shift=self.shift_mask,
-                        half_scan_percentage=self.half_scan_percentage,
-                        center_scale=self.mask_center_scale,
-                    )
+                    if kspace.shape[0] == 1:
+                        _masked_kspace, _mask, _acc = apply_mask(
+                            kspace,
+                            m,
+                            seed,
+                            (acq_start, acq_end),
+                            shift=self.shift_mask,
+                            half_scan_percentage=self.half_scan_percentage,
+                            center_scale=self.mask_center_scale,
+                        )
+                    else:
+                        _masked_kspace = []
+                        for i in range(kspace.shape[0]):
+                            _i_masked_kspace, _mask, _acc = apply_mask(
+                                kspace[i],
+                                m,
+                                seed,
+                                (acq_start, acq_end),
+                                shift=self.shift_mask,
+                                half_scan_percentage=self.half_scan_percentage,
+                                center_scale=self.mask_center_scale,
+                            )
+                            _masked_kspace.append(_i_masked_kspace)
+                        _masked_kspace=torch.stack(_masked_kspace, dim=0
+                                                   )
                     masked_kspaces.append(_masked_kspace)
                     masks.append(_mask.byte())
                     accs.append(_acc)

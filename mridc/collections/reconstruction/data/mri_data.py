@@ -135,7 +135,7 @@ class FastMRISliceDataset(Dataset):
         dataset_cache_file: Union[str, Path, os.PathLike] = "dataset_cache.yaml",
         num_cols: Optional[Tuple[int]] = None,
         mask_root: Union[str, Path, os.PathLike] = None,
-        consecutive_slices_rate: Optional[float] = None,
+        consecutive_slices_rate: Optional[float] = 0.0,
     ):
         """
         Args:
@@ -157,7 +157,7 @@ class FastMRISliceDataset(Dataset):
             num_cols: Optional; If provided, only slices with the desired number of columns will be considered.
             mask_root: Path to stored masks.
             consecutive_slices_rate: Optional; A float between 0 and 1. Selects a percentage of slices of the file to be
-            loaded at  the same time.
+            loaded at  the same time. Setting this to 0.0 will return single slices.
 
         Returns:
             object:
@@ -229,7 +229,7 @@ class FastMRISliceDataset(Dataset):
 
         # Create random number generator used for consecutive slice selection and set consecutive slice amount
         self.rng = np.random.RandomState()
-        if consecutive_slices_rate is None:
+        if consecutive_slices_rate is 0.0:
             self.consecutive_slices = 1
         elif consecutive_slices_rate < 0 or consecutive_slices_rate > 1:
             raise ValueError(
@@ -237,6 +237,9 @@ class FastMRISliceDataset(Dataset):
             )
         else:
             self.consecutive_slices = round(consecutive_slices_rate*self.num_slices)
+            # If the slice rate is too low, return single slices
+            if self.consecutive_slices == 0:
+                self.consecutive_slices = 1
 
     @staticmethod
     def _retrieve_metadata(fname):
