@@ -151,6 +151,7 @@ class RIMBlock(torch.nn.Module):
             Reconstructed image and hidden states.
         """
         if self.dimensionality == 3:
+            # TODO(jerke): Check if this is correct
             batch, slices = masked_kspace.shape[0], masked_kspace.shape[1]
 
             # 2D pred.shape = [batch, coils, height, width, 2]
@@ -191,17 +192,21 @@ class RIMBlock(torch.nn.Module):
             ).contiguous()
 
             if self.dimensionality == 3:
+                # TODO(jerke): Check if this is correct
                 grad_eta = grad_eta.view([4, slices, grad_eta.shape[2], grad_eta.shape[3]])
 
             for h, convrnn in enumerate(self.layers):
                 hx[h] = convrnn(grad_eta, hx[h])
 
                 if self.dimensionality == 3:
+                    # TODO(jerke): Check if this is correct
                     hx[h] = hx[h].squeeze(0)
 
                 grad_eta = hx[h]
 
             grad_eta = self.final_layer(grad_eta)
+
+            # TODO(jerke): Check if this is correct
             if self.dimensionality == 2:
                 grad_eta = grad_eta.permute(0, 2, 3, 1)
             elif self.dimensionality == 3:

@@ -171,6 +171,7 @@ class ConvGRUCell(ConvGRUCellBase):
             The new hidden state of the ConvGRUCell.
         """
         if self.conv_dim == 3:
+            # TODO(jerke): Check if this is correct
             _input = _input.unsqueeze(0)
             hx = hx.permute(1, 0, 2, 3).unsqueeze(0)
 
