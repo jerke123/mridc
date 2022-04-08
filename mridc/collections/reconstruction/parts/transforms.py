@@ -31,6 +31,7 @@ class MRIDataTransforms:
         kspace_zero_filling_size: Optional[Tuple] = None,
         normalize_inputs: bool = False,
         fft_type: str = "orthogonal",
+        dimensionality: int = 2,
         use_seed: bool = True,
     ):
         """
@@ -47,6 +48,7 @@ class MRIDataTransforms:
             kspace_zero_filling_size: The size of padding in kspace -> zero filling.
             normalize_inputs: Whether to normalize the inputs.
             fft_type: The type of the FFT.
+            dimensionality: The dimensionality of the data.
             use_seed: Whether to use the seed.
         """
         self.mask_func = mask_func
@@ -59,6 +61,11 @@ class MRIDataTransforms:
         self.kspace_zero_filling_size = kspace_zero_filling_size
         self.normalize_inputs = normalize_inputs
         self.fft_type = fft_type
+
+        self.dimensionality = dimensionality
+        self.spatial_dims = [1, 2] if self.dimensionality == 2 else [2, 3]
+        self.coil_dim = 0 if self.dimensionality == 2 else 1
+
         self.use_seed = use_seed
 
     def __call__(
@@ -105,27 +112,20 @@ class MRIDataTransforms:
 
         # Apply zero-filling on kspace
         if self.kspace_zero_filling_size is not None and self.kspace_zero_filling_size not in ("", "None"):
-            padding_top = np.floor_divide(abs(int(self.kspace_zero_filling_size[0]) - kspace.shape[1]), 2)
+            padding_top = np.floor_divide(abs(int(self.kspace_zero_filling_size[0]) - kspace.shape[self.spatial_dims[0]]), 2)
             padding_bottom = padding_top
-            padding_left = np.floor_divide(abs(int(self.kspace_zero_filling_size[1]) - kspace.shape[2]), 2)
+            padding_left = np.floor_divide(abs(int(self.kspace_zero_filling_size[1]) - kspace.shape[self.spatial_dims[1]]), 2)
             padding_right = padding_left
 
             kspace = torch.view_as_complex(kspace)
-            kspace = torch.nn.functional.pad(
-                kspace, pad=(padding_left, padding_right, padding_top, padding_bottom), mode="constant", value=0
-            )
+            kspace = torch.nn.functional.pad(kspace, pad=(padding_left, padding_right, padding_top, padding_bottom), mode="constant", value=0)
             kspace = torch.view_as_real(kspace)
 
-            sensitivity_map = fft2c(sensitivity_map, self.fft_type)
+            sensitivity_map = fft2c(sensitivity_map, fft_type=self.fft_type, fft_dim=self.spatial_dims)
             sensitivity_map = torch.view_as_complex(sensitivity_map)
-            sensitivity_map = torch.nn.functional.pad(
-                sensitivity_map,
-                pad=(padding_left, padding_right, padding_top, padding_bottom),
-                mode="constant",
-                value=0,
-            )
+            sensitivity_map = torch.nn.functional.pad(sensitivity_map, pad=(padding_left, padding_right, padding_top, padding_bottom), mode="constant", value=0)
             sensitivity_map = torch.view_as_real(sensitivity_map)
-            sensitivity_map = ifft2c(sensitivity_map, self.fft_type)
+            sensitivity_map = ifft2c(sensitivity_map, fft_type=self.fft_type, fft_dim=self.spatial_dims)
 
         if eta is not None and eta.size != 0:
             eta = to_tensor(eta)
@@ -134,7 +134,7 @@ class MRIDataTransforms:
 
         # TODO: add RSS target option
         if sensitivity_map is not None and sensitivity_map.size != 0:
-            target = torch.sum(complex_mul(ifft2c(kspace, fft_type=self.fft_type), complex_conj(sensitivity_map)), 0)
+            target = torch.sum(complex_mul(ifft2c(kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims), complex_conj(sensitivity_map)), self.coil_dim)
             target = torch.view_as_complex(target)
         elif target is not None and target.size != 0:
             target = to_tensor(target)
@@ -155,8 +155,8 @@ class MRIDataTransforms:
 
         if self.crop_size is not None and self.crop_size not in ("", "None"):
             # Check for smallest size against the target shape.
-            h = int(self.crop_size[0]) if int(self.crop_size[0]) <= target.shape[0] else target.shape[0]
-            w = int(self.crop_size[1]) if int(self.crop_size[1]) <= target.shape[1] else target.shape[1]
+            h = int(self.crop_size[0]) if int(self.crop_size[0]) <= target.shape[-2] else target.shape[-2]
+            w = int(self.crop_size[1]) if int(self.crop_size[1]) <= target.shape[-1] else target.shape[-1]
 
             # Check for smallest size against the stored recon shape in metadata.
             if crop_size[0] != 0:
@@ -168,33 +168,14 @@ class MRIDataTransforms:
 
             target = center_crop(target, self.crop_size)
             if sensitivity_map is not None and sensitivity_map.size != 0:
-                sensitivity_map = (
-                    ifft2c(
-                        complex_center_crop(fft2c(sensitivity_map, fft_type=self.fft_type), self.crop_size),
-                        fft_type=self.fft_type,
-                    )
-                    if self.kspace_crop
-                    else complex_center_crop(sensitivity_map, self.crop_size)
-                )
+                sensitivity_map = (ifft2c(complex_center_crop(fft2c(sensitivity_map, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size), fft_type=self.fft_type, fft_dim=self.spatial_dims) if self.kspace_crop else complex_center_crop(sensitivity_map, self.crop_size))
 
             if eta is not None and eta.ndim > 2:
-                eta = (
-                    ifft2c(
-                        complex_center_crop(fft2c(eta, fft_type=self.fft_type), self.crop_size), fft_type=self.fft_type
-                    )
-                    if self.kspace_crop
-                    else complex_center_crop(eta, self.crop_size)
-                )
+                eta = (ifft2c(complex_center_crop(fft2c(eta, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size), fft_type=self.fft_type, fft_dim=self.spatial_dims) if self.kspace_crop else complex_center_crop(eta, self.crop_size))
 
         # Cropping before masking will maintain the shape of original kspace intact for masking.
         if self.crop_size is not None and self.crop_size not in ("", "None") and self.crop_before_masking:
-            kspace = (
-                complex_center_crop(kspace, self.crop_size)
-                if self.kspace_crop
-                else fft2c(
-                    complex_center_crop(ifft2c(kspace, fft_type=self.fft_type), self.crop_size), fft_type=self.fft_type
-                )
-            )
+            kspace = (complex_center_crop(kspace, self.crop_size) if self.kspace_crop else fft2c(complex_center_crop(ifft2c(kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size), fft_type=self.fft_type, fft_dim=self.spatial_dims))
 
         if self.mask_func is not None:
             # Check for multiple masks/accelerations.
@@ -203,7 +184,7 @@ class MRIDataTransforms:
                 masks = []
                 accs = []
                 for m in self.mask_func:
-                    if kspace.shape[0] == 1:
+                    if self.dimensionality == 2:
                         _masked_kspace, _mask, _acc = apply_mask(
                             kspace,
                             m,
@@ -213,7 +194,7 @@ class MRIDataTransforms:
                             half_scan_percentage=self.half_scan_percentage,
                             center_scale=self.mask_center_scale,
                         )
-                    else:
+                    elif self.dimensionality == 3:
                         _masked_kspace = []
                         for i in range(kspace.shape[0]):
                             _i_masked_kspace, _mask, _acc = apply_mask(
@@ -226,8 +207,10 @@ class MRIDataTransforms:
                                 center_scale=self.mask_center_scale,
                             )
                             _masked_kspace.append(_i_masked_kspace)
-                        _masked_kspace=torch.stack(_masked_kspace, dim=0
-                                                   )
+                        _masked_kspace = torch.stack(_masked_kspace, dim=0)
+                        _mask = _mask.unsqueeze(0)
+                    else:
+                        raise ValueError(f"Unsupported data dimensionality {self.dimensionality}D.")
                     masked_kspaces.append(_masked_kspace)
                     masks.append(_mask.byte())
                     accs.append(_acc)
@@ -251,9 +234,9 @@ class MRIDataTransforms:
 
             if mask is not None:
                 mask = torch.from_numpy(mask)
-                if mask.shape[0] == masked_kspace.shape[2]:  # type: ignore
+                if mask.shape[0] == masked_kspace.shape[self.spatial_dims[1]]:  # type: ignore
                     mask = mask.permute(1, 0)
-                elif mask.shape[0] != masked_kspace.shape[1]:  # type: ignore
+                elif mask.shape[0] != masked_kspace.shape[self.spatial_dims[1]]:  # type: ignore
                     mask = torch.ones(
                         [masked_kspace.shape[-3], masked_kspace.shape[-2]], dtype=torch.float32  # type: ignore
                     )
@@ -286,8 +269,8 @@ class MRIDataTransforms:
                 complex_center_crop(masked_kspace, self.crop_size)
                 if self.kspace_crop
                 else fft2c(
-                    complex_center_crop(ifft2c(masked_kspace, fft_type=self.fft_type), self.crop_size),
-                    fft_type=self.fft_type,
+                    complex_center_crop(ifft2c(masked_kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size),
+                    fft_type=self.fft_type, fft_dim=self.spatial_dims,
                 )
             )
 
@@ -299,37 +282,37 @@ class MRIDataTransforms:
                 masked_kspaces = []
                 for y in masked_kspace:
                     if self.fft_type in ("orthogonal", "orthogonal_norm_only"):
-                        imspace = ifft2c(y, fft_type=self.fft_type)
+                        imspace = ifft2c(y, fft_type=self.fft_type, fft_dim=self.spatial_dims)
                         imspace = imspace / torch.max(torch.abs(imspace))
-                        masked_kspaces.append(fft2c(imspace, fft_type=self.fft_type))
+                        masked_kspaces.append(fft2c(imspace, fft_type=self.fft_type, fft_dim=self.spatial_dims))
                     elif self.fft_type == "fft_norm_only":
                         imspace = ifft2c(y, fft_type=self.fft_type)
-                        masked_kspaces.append(fft2c(imspace, fft_type=self.fft_type))
+                        masked_kspaces.append(fft2c(imspace, fft_type=self.fft_type, fft_dim=self.spatial_dims))
                     elif self.fft_type == "backward_norm":
-                        imspace = ifft2c(y, fft_type=self.fft_type, fft_normalization="backward")
-                        masked_kspaces.append(fft2c(imspace, fft_type=self.fft_type, fft_normalization="backward"))
+                        imspace = ifft2c(y, fft_type=self.fft_type, fft_dim=self.spatial_dims, fft_normalization="backward")
+                        masked_kspaces.append(fft2c(imspace, fft_type=self.fft_type, fft_dim=self.spatial_dims, fft_normalization="backward"))
                     else:
-                        imspace = torch.fft.ifftn(torch.view_as_complex(y), dim=[-2, -1], norm=None)
+                        imspace = torch.fft.ifftn(torch.view_as_complex(y), dim=self.spatial_dims, norm=None)
                         imspace = imspace / torch.max(torch.abs(imspace))
-                        masked_kspaces.append(torch.view_as_real(torch.fft.fftn(imspace, dim=[-2, -1], norm=None)))
+                        masked_kspaces.append(torch.view_as_real(torch.fft.fftn(imspace, dim=self.spatial_dims, norm=None)))
                 masked_kspace = masked_kspaces
             else:
                 if self.fft_type in ("orthogonal", "orthogonal_norm_only"):
-                    imspace = ifft2c(masked_kspace, fft_type=self.fft_type)
+                    imspace = ifft2c(masked_kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims)
                     imspace = imspace / torch.max(torch.abs(imspace))
-                    masked_kspace = fft2c(imspace, fft_type=self.fft_type)
+                    masked_kspace = fft2c(imspace, fft_type=self.fft_type, fft_dim=self.spatial_dims)
                 elif self.fft_type == "fft_norm_only":
-                    masked_kspace = fft2c(ifft2c(masked_kspace, fft_type=self.fft_type), fft_type=self.fft_type)
+                    masked_kspace = fft2c(ifft2c(masked_kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims), fft_type=self.fft_type, fft_dim=self.spatial_dims)
                 elif self.fft_type == "backward_norm":
                     masked_kspace = fft2c(
-                        ifft2c(masked_kspace, fft_type=self.fft_type, fft_normalization="backward"),
-                        fft_type=self.fft_type,
+                        ifft2c(masked_kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims, fft_normalization="backward"),
+                        fft_type=self.fft_type, fft_dim=self.spatial_dims,
                         fft_normalization="backward",
                     )
                 else:
-                    imspace = torch.fft.ifftn(torch.view_as_complex(masked_kspace), dim=[-2, -1], norm=None)
+                    imspace = torch.fft.ifftn(torch.view_as_complex(masked_kspace), dim=self.spatial_dims, norm=None)
                     imspace = imspace / torch.max(torch.abs(imspace))
-                    masked_kspace = torch.view_as_real(torch.fft.fftn(imspace, dim=[-2, -1], norm=None))
+                    masked_kspace = torch.view_as_real(torch.fft.fftn(imspace, dim=self.spatial_dims, norm=None))
 
             if sensitivity_map.size != 0:
                 sensitivity_map = sensitivity_map / torch.max(torch.abs(sensitivity_map))

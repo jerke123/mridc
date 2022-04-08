@@ -273,6 +273,7 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
                 crop_before_masking=cfg.get("crop_before_masking"),
                 kspace_zero_filling_size=cfg.get("kspace_zero_filling_size"),
                 fft_type=cfg.get("fft_type"),
+                dimensionality=cfg.get("dimensionality"),
                 use_seed=cfg.get("use_seed"),
             ),
             sample_rate=cfg.get("sample_rate"),

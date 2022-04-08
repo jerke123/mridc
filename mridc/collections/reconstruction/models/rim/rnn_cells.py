@@ -20,7 +20,7 @@ class ConvGRUCellBase(nn.Module):
         self.conv_dim = conv_dim
         self.conv_class = self.determine_conv_class(conv_dim)
 
-        self.ih =  self.conv_class(
+        self.ih = self.conv_class(
             input_size,
             3 * hidden_size,
             kernel_size,
@@ -28,7 +28,7 @@ class ConvGRUCellBase(nn.Module):
             dilation=dilation,
             bias=bias,
         )
-        self.hh =  self.conv_class(
+        self.hh = self.conv_class(
             hidden_size,
             3 * hidden_size,
             kernel_size,
@@ -157,6 +157,7 @@ class ConvGRUCell(ConvGRUCellBase):
             bias: Whether or not to add a bias.
         """
         super(ConvGRUCell, self).__init__(input_size, hidden_size, conv_dim, kernel_size, dilation, bias)
+        self.conv_dim = conv_dim
 
     def forward(self, _input, hx):
         """
@@ -169,6 +170,10 @@ class ConvGRUCell(ConvGRUCellBase):
         Returns:
             The new hidden state of the ConvGRUCell.
         """
+        if self.conv_dim == 3:
+            _input = _input.unsqueeze(0)
+            hx = hx.permute(1, 0, 2, 3).unsqueeze(0)
+
         ih = self.ih(_input).chunk(3, 1)
         hh = self.hh(hx).chunk(3, 1)
 

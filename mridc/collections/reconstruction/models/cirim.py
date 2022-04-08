@@ -48,6 +48,11 @@ class CIRIM(BaseMRIReconstructionModel, ABC):
 
         self.no_dc = cfg_dict.get("no_dc")
         self.fft_type = cfg_dict.get("fft_type")
+
+        self.dimensionality = cfg.get("dimensionality")
+        self.spatial_dims = [1, 2]  # if self.dimensionality == 2 else [2, 3]
+        self.coil_dim = 1  # if self.dimensionality == 2 else 2
+
         self.num_cascades = cfg_dict.get("num_cascades")
 
         self.cirim = torch.nn.ModuleList(
@@ -67,6 +72,7 @@ class CIRIM(BaseMRIReconstructionModel, ABC):
                     conv_dim=cfg_dict.get("conv_dim"),
                     no_dc=self.no_dc,
                     fft_type=self.fft_type,
+                    dimensionality=self.dimensionality,
                 )
                 for _ in range(self.num_cascades)
             ]
@@ -147,8 +153,8 @@ class CIRIM(BaseMRIReconstructionModel, ABC):
         """Process the intermediate eta to be used in the loss function."""
         # Take the last time step of the eta
         if not self.no_dc or do_coil_combination:
-            pred = ifft2c(pred, fft_type=self.fft_type)
-            pred = coil_combination(pred, sensitivity_maps, method=self.output_type, dim=1)
+            pred = ifft2c(pred, fft_type=self.fft_type, fft_dim=self.spatial_dims)
+            pred = coil_combination(pred, sensitivity_maps, method=self.output_type, dim=self.coil_dim)
         pred = torch.view_as_complex(pred)
         _, pred = center_crop_to_smallest(target, pred)
         return pred

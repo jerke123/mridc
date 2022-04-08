@@ -31,6 +31,7 @@ class RIMBlock(torch.nn.Module):
         conv_dim: int = 2,
         no_dc: bool = False,
         fft_type: str = "orthogonal",
+        dimensionality: int = 2,
     ):
         """
         Args:
@@ -48,6 +49,7 @@ class RIMBlock(torch.nn.Module):
             conv_dim: Dimension of the convolutional layers.
             no_dc: If True, the DC component is removed from the input.
             fft_type: Type of FFT.
+            dimensionality: Dimensionality of the input.
         """
         super(RIMBlock, self).__init__()
 
@@ -95,7 +97,7 @@ class RIMBlock(torch.nn.Module):
                 rnn_layer = rnn_type(
                     self.input_size,
                     rnn_features,
-                    conv_dim=2,
+                    conv_dim=conv_dim,
                     kernel_size=rnn_k_size,
                     dilation=rnn_dilation,
                     bias=rnn_bias,
@@ -109,6 +111,10 @@ class RIMBlock(torch.nn.Module):
 
         self.recurrent_filters = recurrent_filters
         self.fft_type = fft_type
+
+        self.dimensionality = dimensionality
+        self.spatial_dims = [2, 3]  # if self.dimensionality == 2 else [3, 4]
+        self.coil_dim = 1  # if self.dimensionality == 2 else 2
 
         self.no_dc = no_dc
 
@@ -144,6 +150,20 @@ class RIMBlock(torch.nn.Module):
         -------
             Reconstructed image and hidden states.
         """
+        if self.dimensionality == 3:
+            batch, slices = masked_kspace.shape[0], masked_kspace.shape[1]
+
+            # 2D pred.shape = [batch, coils, height, width, 2]
+            # 3D pred.shape = [batch, slices, coils, height, width, 2] -> [batch * slices, coils, height, width, 2]
+
+            pred = pred.reshape([pred.shape[0]*pred.shape[1], pred.shape[2], pred.shape[3], pred.shape[4], pred.shape[5]])
+            masked_kspace = masked_kspace.reshape([masked_kspace.shape[0]*masked_kspace.shape[1], masked_kspace.shape[2], masked_kspace.shape[3], masked_kspace.shape[4], masked_kspace.shape[5]])
+            mask = mask.reshape([mask.shape[0]*mask.shape[1], mask.shape[2], mask.shape[3], mask.shape[4], mask.shape[5]])
+            sense = sense.reshape([sense.shape[0]*sense.shape[1], sense.shape[2], sense.shape[3], sense.shape[4], sense.shape[5]])
+        else:
+            batch = masked_kspace.shape[0]
+            slices = 1
+
         if hx is None:
             hx = [
                 masked_kspace.new_zeros((masked_kspace.size(0), f, *masked_kspace.size()[2:-1]))
@@ -159,22 +179,35 @@ class RIMBlock(torch.nn.Module):
                 pred
                 if keep_eta
                 else torch.sum(
-                    complex_mul(ifft2c(pred, fft_type=self.fft_type), complex_conj(sense)),
-                    1,
+                    complex_mul(ifft2c(pred, fft_type=self.fft_type, fft_dim=self.spatial_dims), complex_conj(sense)),
+                    self.coil_dim,
                 )
             )
 
         etas = []
         for _ in range(self.time_steps):
             grad_eta = log_likelihood_gradient(
-                eta, masked_kspace, sense, mask, sigma=sigma, fft_type=self.fft_type
+                eta, masked_kspace, sense, mask, sigma=sigma, fft_type=self.fft_type, fft_dim=self.spatial_dims, coil_dim=self.coil_dim
             ).contiguous()
+
+            if self.dimensionality == 3:
+                grad_eta = grad_eta.view([4, slices, grad_eta.shape[2], grad_eta.shape[3]])
 
             for h, convrnn in enumerate(self.layers):
                 hx[h] = convrnn(grad_eta, hx[h])
+
+                if self.dimensionality == 3:
+                    hx[h] = hx[h].squeeze(0)
+
                 grad_eta = hx[h]
 
-            eta = eta + self.final_layer(grad_eta).permute(0, 2, 3, 1)
+            grad_eta = self.final_layer(grad_eta)
+            if self.dimensionality == 2:
+                grad_eta = grad_eta.permute(0, 2, 3, 1)
+            elif self.dimensionality == 3:
+                grad_eta = grad_eta.permute(1, 2, 3, 0)
+
+            eta = eta + grad_eta
             etas.append(eta)
 
         eta = etas
@@ -184,7 +217,7 @@ class RIMBlock(torch.nn.Module):
 
         soft_dc = torch.where(mask, pred - masked_kspace, self.zero.to(masked_kspace)) * self.dc_weight
         current_kspace = [
-            masked_kspace - soft_dc - fft2c(complex_mul(e.unsqueeze(1), sense), fft_type=self.fft_type) for e in eta
+            masked_kspace - soft_dc - fft2c(complex_mul(e.unsqueeze(self.coil_dim + 1), sense), fft_type=self.fft_type, fft_dim=self.spatial_dims) for e in eta
         ]
 
         return current_kspace, None

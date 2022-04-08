@@ -228,18 +228,11 @@ class FastMRISliceDataset(Dataset):
         self.num_slices = len(self.examples)
 
         # Create random number generator used for consecutive slice selection and set consecutive slice amount
-        self.rng = np.random.RandomState()
-        if consecutive_slices_rate is 0.0:
-            self.consecutive_slices = 1
-        elif consecutive_slices_rate < 0 or consecutive_slices_rate > 1:
+        self.consecutive_slices_rate = consecutive_slices_rate
+        if self.consecutive_slices_rate < 0 or self.consecutive_slices_rate > 1:
             raise ValueError(
                 "consecutive_slices_rate is out of range, must be between 0 and 1."
             )
-        else:
-            self.consecutive_slices = round(consecutive_slices_rate*self.num_slices)
-            # If the slice rate is too low, return single slices
-            if self.consecutive_slices == 0:
-                self.consecutive_slices = 1
 
     @staticmethod
     def _retrieve_metadata(fname):
@@ -292,60 +285,80 @@ class FastMRISliceDataset(Dataset):
 
         return metadata, num_slices
 
+    def get_consecutive_slices(self, data, key, dataslice):
+        """
+        Get consecutive slices from a given data.
+
+        Args:
+            data: Data to extract slices from.
+            key: Key to extract slices from.
+            dataslice: Slice to extract slices from.
+
+        Returns:
+            A list of consecutive slices.
+        """
+        data = data[key]
+
+        if self.consecutive_slices_rate == 0.:
+            return data[dataslice]
+
+        num_slices = data.shape[0]
+        consecutive_slices = round(self.consecutive_slices_rate * num_slices)
+
+        rng = np.random.RandomState()
+        start_slice = rng.randint(0, num_slices - consecutive_slices)
+        end_slice = start_slice + consecutive_slices
+
+        d = [data[i] for i in range(start_slice, end_slice)]
+        d = np.stack(d, axis=0)
+
+        return d
+
     def __len__(self):
         return len(self.examples)
 
     def __getitem__(self, i: int):
         fname, dataslice, metadata = self.examples[i]
         with h5py.File(fname, "r") as hf:
-            # Normal single slice selection
-            if self.consecutive_slices == 1:
-                start_slice = dataslice
-                end_slice = dataslice + 1
-            # Get random subsample of consecutive slices in the dataset
-            else:
-                start_slice = self.rng.randint(0, self.num_slices - self.consecutive_slices)
-                end_slice = start_slice + self.consecutive_slices
-
-            kspace = hf["kspace"][start_slice:end_slice].astype(np.complex64)
+            kspace = self.get_consecutive_slices(hf, "kspace", dataslice).astype(np.complex64)
 
             if "sensitivity_map" in hf:
-                sensitivity_map = hf["sensitivity_map"][start_slice:end_slice].astype(np.complex64)
+                sensitivity_map = self.get_consecutive_slices(hf, "sensitivity_map", dataslice).astype(np.complex64)
+
             elif self.sense_root is not None and self.sense_root != "None":
                 with h5py.File(Path(self.sense_root) / Path(str(fname).split("/")[-2]) / fname.name, "r") as sf:
-                    sensitivity_map = (
-                        sf["sensitivity_map"][start_slice:end_slice]
-                        if "sensitivity_map" in sf or "sensitivity_map" in next(iter(sf.keys()))
-                        else sf["sense"][start_slice:end_slice]
-                    )
+                    if "sensitivity_map" in sf or "sensitivity_map" in next(iter(sf.keys())):
+                        sensitivity_map = self.get_consecutive_slices(sf, "sensitivity_map", dataslice)
+                    else:
+                        sensitivity_map = self.get_consecutive_slices(sf, "sense", dataslice)
                     sensitivity_map = sensitivity_map.squeeze().astype(np.complex64)
             else:
                 sensitivity_map = np.array([])
 
             if "mask" in hf:
-                mask = np.asarray(hf["mask"])
-
-                if mask.ndim == 3:
-                    mask = mask[start_slice:end_slice]
-
+                mask = np.asarray(self.get_consecutive_slices(hf, "mask", dataslice))
             elif self.mask_root is not None and self.mask_root != "None":
                 mask_path = Path(self.mask_root) / Path(str(fname.name).split(".")[0] + ".npy")
                 mask = np.load(str(mask_path))
             else:
                 mask = None
 
-            eta = hf["eta"][start_slice:end_slice].astype(np.complex64) if "eta" in hf else np.array([])
-
             if "reconstruction_sense" in hf:
                 self.recons_key = "reconstruction_sense"
 
-            target = hf[self.recons_key][start_slice:end_slice].astype(np.float32) if self.recons_key in hf else None
+            eta = self.get_consecutive_slices(hf, "eta", dataslice).astype(np.complex64) if "eta" in hf else np.array([])
+            target = self.get_consecutive_slices(hf, self.recons_key, dataslice).astype(np.float32) if self.recons_key in hf else None
 
             attrs = dict(hf.attrs)
             attrs.update(metadata)
 
         if sensitivity_map.shape != kspace.shape:
-            sensitivity_map = np.transpose(sensitivity_map, (2, 0, 1))
+            if sensitivity_map.ndim == 3:
+                sensitivity_map = np.transpose(sensitivity_map, (2, 0, 1))
+            elif sensitivity_map.ndim == 4:
+                sensitivity_map = np.transpose(sensitivity_map, (0, 3, 1, 2))
+            else:
+                raise ValueError("Sensitivity map has invalid dimensions")
 
         return (
             (
