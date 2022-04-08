@@ -193,7 +193,7 @@ class RIMBlock(torch.nn.Module):
 
             if self.dimensionality == 3:
                 # TODO(jerke): Check if this is correct
-                grad_eta = grad_eta.view([4, slices, grad_eta.shape[2], grad_eta.shape[3]])
+                grad_eta = grad_eta.view([4, slices * batch, grad_eta.shape[2], grad_eta.shape[3]])
 
             for h, convrnn in enumerate(self.layers):
                 hx[h] = convrnn(grad_eta, hx[h])
@@ -211,6 +211,9 @@ class RIMBlock(torch.nn.Module):
                 grad_eta = grad_eta.permute(0, 2, 3, 1)
             elif self.dimensionality == 3:
                 grad_eta = grad_eta.permute(1, 2, 3, 0)
+
+                for h in range(len(hx)):
+                    hx[h] = hx[h].permute(1, 0, 2, 3)
 
             eta = eta + grad_eta
             etas.append(eta)

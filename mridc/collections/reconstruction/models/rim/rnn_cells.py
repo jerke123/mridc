@@ -353,6 +353,7 @@ class ConvMGUCell(ConvMGUCellBase):
             bias: Whether to use a bias.
         """
         super(ConvMGUCell, self).__init__(input_size, hidden_size, conv_dim, kernel_size, dilation, bias)
+        self.conv_dim = conv_dim
 
     def forward(self, _input, hx):
         """
@@ -365,6 +366,10 @@ class ConvMGUCell(ConvMGUCellBase):
         Returns:
             The output.
         """
+        if self.conv_dim == 3:
+            _input = _input.unsqueeze(0)
+            hx = hx.permute(1, 0, 2, 3).unsqueeze(0)
+
         ih = self.ih(_input).chunk(2, dim=1)
         hh = self.hh(hx).chunk(2, dim=1)
 
@@ -416,9 +421,15 @@ class IndRNNCellBase(nn.Module):
             dilation=dilation,
             bias=bias,
         )
-        self.hh = nn.Parameter(
-            nn.init.normal_(torch.empty(1, hidden_size, 1, 1), std=1.0 / (hidden_size * (1 + kernel_size**2)))
-        )
+
+        if self.conv_dim == 2:
+            self.hh = nn.Parameter(
+                nn.init.normal_(torch.empty(1, hidden_size, 1, 1), std=1.0 / (hidden_size * (1 + kernel_size**2)))
+            )
+        elif self.conv_dim == 3:
+            self.hh = nn.Parameter(
+                nn.init.normal_(torch.empty(1, hidden_size, 1, 1, 1), std=1.0 / (hidden_size * (1 + kernel_size**2)))
+            )
 
         self.reset_parameters()
 
@@ -539,6 +550,7 @@ class IndRNNCell(IndRNNCellBase):
             bias: If ``False``, then the layer does not use bias weights `b_ih` and `b_hh`.
         """
         super(IndRNNCell, self).__init__(input_size, hidden_size, conv_dim, kernel_size, dilation, bias)
+        self.conv_dim = conv_dim
 
     def forward(self, _input, hx):
         """
@@ -549,4 +561,9 @@ class IndRNNCell(IndRNNCellBase):
         Returns:
             h_next: A (batch, hidden_size) tensor containing the next hidden state
         """
+        if self.conv_dim == 3:
+            # TODO(jerke): Check if this is correct
+            _input = _input.unsqueeze(0)
+            hx = hx.permute(1, 0, 2, 3).unsqueeze(0)
+
         return nn.ReLU()(self.ih(_input) + self.hh * hx)

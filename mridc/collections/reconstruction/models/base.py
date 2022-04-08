@@ -102,6 +102,8 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
             }
         """
         y, sensitivity_maps, mask, init_pred, target, _, _, acc = batch
+        if target.dim() > 3:
+            target = target[0]
         y, mask, r = self.process_inputs(y, mask)
         preds = self.forward(y, sensitivity_maps, mask, init_pred, target)
 
@@ -125,6 +127,8 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
     def validation_step(self, batch: Dict[float, torch.Tensor], batch_idx: int) -> Dict:
         """Validation step for the model."""
         y, sensitivity_maps, mask, init_pred, target, fname, slice_num, _ = batch
+        if target.dim() > 3:
+            target = target[0]
         y, mask, _ = self.process_inputs(y, mask)
         preds = self.forward(y, sensitivity_maps, mask, init_pred, target)
 
@@ -161,6 +165,8 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
     def test_step(self, batch: Dict[float, torch.Tensor], batch_idx: int) -> Tuple[str, int, torch.Tensor]:
         """Test step for the model."""
         y, sensitivity_maps, mask, init_pred, target, fname, slice_num, _ = batch
+        if target.dim() > 3:
+            target = target[0]
         y, mask, _ = self.process_inputs(y, mask)
         preds = self.forward(y, sensitivity_maps, mask, init_pred, target)
 
@@ -199,6 +205,8 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
     def log_image(self, name, image):
         """Log an image."""
         # TODO: Add support for wandb logging
+        if image.shape[0] != 1:
+            image = image[0].unsqueeze(0)
         self.logger.experiment.add_image(name, image, global_step=self.global_step)
 
     def validation_epoch_end(self, outputs):
