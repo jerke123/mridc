@@ -47,6 +47,10 @@ def log_likelihood_gradient(
         # TODO(jerke): Check if this is correct
         eta_real = eta_real.permute(1, 0, 2, 3, 4)
         eta_imag = eta_imag.permute(1, 0, 2, 3, 4)
+    # eta_real/imag samse size:
+    # [slices, batch, height, width, 1]
+    #3D: torch.Size([1/2/3, 1, 287, 256, 1])
+    #2D: torch.Size([1, 1, 287, 256, 1])
 
     re_se = eta_real * sense_real - eta_imag * sense_imag
     im_se = eta_real * sense_imag + eta_imag * sense_real
@@ -62,7 +66,6 @@ def log_likelihood_gradient(
     eta_imag = eta_imag.squeeze(0)
 
     if re_out.dim() != eta_real.dim():  # 3D
-        # TODO(jerke): Check if this is correct
         re_out = re_out.unsqueeze(coil_dim)
         im_out = im_out.unsqueeze(coil_dim)
         return torch.cat((eta_real, eta_imag, re_out, im_out), 0).squeeze(-1)

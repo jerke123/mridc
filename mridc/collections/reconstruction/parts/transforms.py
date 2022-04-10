@@ -197,15 +197,28 @@ class MRIDataTransforms:
                     elif self.dimensionality == 3:
                         _masked_kspace = []
                         for i in range(kspace.shape[0]):
-                            _i_masked_kspace, _mask, _acc = apply_mask(
-                                kspace[i],
-                                m,
-                                seed,
-                                (acq_start, acq_end),
-                                shift=self.shift_mask,
-                                half_scan_percentage=self.half_scan_percentage,
-                                center_scale=self.mask_center_scale,
-                            )
+                            # Generate a mask for the first slice, reuse it for the other slices
+                            if i==0:
+                                _i_masked_kspace, _mask, _acc = apply_mask(
+                                    kspace[i],
+                                    m,
+                                    seed,
+                                    (acq_start, acq_end),
+                                    shift=self.shift_mask,
+                                    half_scan_percentage=self.half_scan_percentage,
+                                    center_scale=self.mask_center_scale,
+                                )
+                            else:
+                                _i_masked_kspace = apply_mask(
+                                    kspace[i],
+                                    m,
+                                    seed,
+                                    (acq_start, acq_end),
+                                    shift=self.shift_mask,
+                                    half_scan_percentage=self.half_scan_percentage,
+                                    center_scale=self.mask_center_scale,
+                                    remask=_mask,
+                                )
                             _masked_kspace.append(_i_masked_kspace)
                         _masked_kspace = torch.stack(_masked_kspace, dim=0)
                         _mask = _mask.unsqueeze(0)
