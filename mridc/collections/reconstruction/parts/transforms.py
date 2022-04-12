@@ -33,6 +33,7 @@ class MRIDataTransforms:
         fft_type: str = "orthogonal",
         dimensionality: int = 2,
         use_seed: bool = True,
+        remask: bool = True,
     ):
         """
         Initialize the data transform.
@@ -50,6 +51,7 @@ class MRIDataTransforms:
             fft_type: The type of the FFT.
             dimensionality: The dimensionality of the data.
             use_seed: Whether to use the seed.
+            remask: Whether to only generate 1 mask per set of consecutive slices of 3D data.
         """
         self.mask_func = mask_func
         self.shift_mask = shift_mask
@@ -67,6 +69,7 @@ class MRIDataTransforms:
         self.coil_dim = 0 if self.dimensionality == 2 else 1
 
         self.use_seed = use_seed
+        self.remask = remask
 
     def __call__(
         self,
@@ -196,32 +199,25 @@ class MRIDataTransforms:
                         )
                     elif self.dimensionality == 3:
                         _masked_kspace = []
+                        _mask = None
                         for i in range(kspace.shape[0]):
-                            # Generate a mask for the first slice, reuse it for the other slices
-                            if i==0:
-                                _i_masked_kspace, _mask, _acc = apply_mask(
-                                    kspace[i],
-                                    m,
-                                    seed,
-                                    (acq_start, acq_end),
-                                    shift=self.shift_mask,
-                                    half_scan_percentage=self.half_scan_percentage,
-                                    center_scale=self.mask_center_scale,
-                                )
-                            else:
-                                _i_masked_kspace = apply_mask(
-                                    kspace[i],
-                                    m,
-                                    seed,
-                                    (acq_start, acq_end),
-                                    shift=self.shift_mask,
-                                    half_scan_percentage=self.half_scan_percentage,
-                                    center_scale=self.mask_center_scale,
-                                    remask=_mask,
-                                )
+                            _i_masked_kspace, _i_mask, _i_acc  = apply_mask(
+                                kspace[i],
+                                m,
+                                seed,
+                                (acq_start, acq_end),
+                                shift=self.shift_mask,
+                                half_scan_percentage=self.half_scan_percentage,
+                                center_scale=self.mask_center_scale,
+                                existing_mask=_mask,
+                            )
+                            if self.remask:
+                                _mask=_i_mask
+                            if i == 0:
+                                _acc = _i_acc
                             _masked_kspace.append(_i_masked_kspace)
                         _masked_kspace = torch.stack(_masked_kspace, dim=0)
-                        _mask = _mask.unsqueeze(0)
+                        _mask = _i_mask.unsqueeze(0)
                     else:
                         raise ValueError(f"Unsupported data dimensionality {self.dimensionality}D.")
                     masked_kspaces.append(_masked_kspace)

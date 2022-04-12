@@ -283,6 +283,7 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
                 fft_type=cfg.get("fft_type"),
                 dimensionality=cfg.get("dimensionality"),
                 use_seed=cfg.get("use_seed"),
+                remask=cfg.get("remask"),
             ),
             sample_rate=cfg.get("sample_rate"),
             consecutive_slices_rate=cfg.get("consecutive_slices_rate"),
