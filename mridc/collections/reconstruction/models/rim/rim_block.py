@@ -190,14 +190,11 @@ class RIMBlock(torch.nn.Module):
                 eta, masked_kspace, sense, mask, sigma=sigma, fft_type=self.fft_type, fft_dim=self.spatial_dims, coil_dim=self.coil_dim
             ).contiguous()
 
-            if self.dimensionality == 3:
-                # TODO(jerke): Check if this is correct
-                ## 4 works regardless of batch/slices size?
-                grad_eta = grad_eta.view([4, slices * batch, grad_eta.shape[2], grad_eta.shape[3]])
+            #if self.dimensionality == 3:
+            grad_eta = grad_eta.view([slices * batch, 4, grad_eta.shape[2], grad_eta.shape[3]])
 
             for h, convrnn in enumerate(self.layers):
                 hx[h] = convrnn(grad_eta, hx[h])
-
                 if self.dimensionality == 3:
                     hx[h] = hx[h].squeeze(0)
 
@@ -205,17 +202,13 @@ class RIMBlock(torch.nn.Module):
 
             grad_eta = self.final_layer(grad_eta)
 
-            # TODO(jerke): Check if this is correct
             if self.dimensionality == 2:
                 grad_eta = grad_eta.permute(0, 2, 3, 1)
             elif self.dimensionality == 3:
                 grad_eta = grad_eta.permute(1, 2, 3, 0)
                 for h in range(len(hx)):
                     hx[h] = hx[h].permute(1, 0, 2, 3)
-            # print(grad_eta.shape)
-            # for 3D, shape is [2, height, width, 2],
-            # for 2D, shape is [1, height, width, 2].
-            # real/imag is last dimension (?)
+
             eta = eta + grad_eta
             etas.append(eta)
 

@@ -563,8 +563,6 @@ class IndRNNCell(IndRNNCellBase):
             # TODO(jerke): Check if this is correct
             _input = _input.unsqueeze(0)
             hx = hx.permute(1, 0, 2, 3).unsqueeze(0)
-        # _input and hx are same dimensions
-        # 3D: torch.Size([1, 64, 2, 287, 256])
-        # 2D: torch.Size([1, 64, 287, 256])
+
 
         return nn.ReLU()(self.ih(_input) + self.hh * hx)

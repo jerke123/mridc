@@ -150,7 +150,7 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
         if isinstance(preds, list):
             preds = preds[-1]
 
-        key = f"{fname[0]}_images_idx_{int(slice_num)}"  # type: ignore
+        key = f"{fname[0]}_images_idx_{int(slice_num[0])}"  # type: ignore
         output = torch.abs(preds).detach().cpu()
         target = torch.abs(target).detach().cpu()
         output = output / output.max()  # type: ignore
@@ -294,7 +294,7 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
 
         return torch.utils.data.DataLoader(
             dataset=dataset,
-            batch_size=1,
+            batch_size=cfg.get("batch_size", 1),
             sampler=sampler,
             num_workers=cfg.get("num_workers", 2),
             pin_memory=cfg.get("pin_memory", False),
