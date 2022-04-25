@@ -135,7 +135,7 @@ class FastMRISliceDataset(Dataset):
         dataset_cache_file: Union[str, Path, os.PathLike] = "dataset_cache.yaml",
         num_cols: Optional[Tuple[int]] = None,
         mask_root: Union[str, Path, os.PathLike] = None,
-        consecutive_slices_rate: Optional[float] = 0.0,
+        consecutive_slices: Optional[int] = 1,
     ):
         """
         Args:
@@ -156,8 +156,8 @@ class FastMRISliceDataset(Dataset):
             dataset_cache_file: Optional; A file in which to cache dataset information for faster load times.
             num_cols: Optional; If provided, only slices with the desired number of columns will be considered.
             mask_root: Path to stored masks.
-            consecutive_slices_rate: Optional; A float between 0 and 1. Selects a percentage of slices of the file to be
-            loaded at  the same time. Setting this to 0.0 will return single slices.
+            consecutive_slices: Optional; An int (>0) that determinse the amount of consecutive slices of the file to be
+            loaded at  the same time. Defaults to 1, loading single slices.
 
         Returns:
             object:
@@ -228,10 +228,10 @@ class FastMRISliceDataset(Dataset):
         self.num_slices = len(self.examples)
 
         # Create random number generator used for consecutive slice selection and set consecutive slice amount
-        self.consecutive_slices_rate = consecutive_slices_rate
-        if self.consecutive_slices_rate < 0 or self.consecutive_slices_rate > 1:
+        self.consecutive_slices = consecutive_slices
+        if self.consecutive_slices < 1:
             raise ValueError(
-                "consecutive_slices_rate is out of range, must be between 0 and 1."
+                "consecutive_slices value is out of range, must be > 0."
             )
 
     @staticmethod
@@ -299,15 +299,16 @@ class FastMRISliceDataset(Dataset):
         """
         data = data[key]
 
-        if self.consecutive_slices_rate == 0.:
+        if self.consecutive_slices == 1:
             return data[dataslice]
 
         num_slices = data.shape[0]
-        consecutive_slices = round(self.consecutive_slices_rate * num_slices)
+        if self.consecutive_slices > num_slices:
+            return np.stack(data, axis=0)
 
         rng = np.random.RandomState()
-        start_slice = rng.randint(0, num_slices - consecutive_slices)
-        end_slice = start_slice + consecutive_slices
+        start_slice = rng.randint(0, num_slices - self.consecutive_slices)
+        end_slice = start_slice + self.consecutive_slices
 
         d = [data[i] for i in range(start_slice, end_slice)]
         d = np.stack(d, axis=0)
