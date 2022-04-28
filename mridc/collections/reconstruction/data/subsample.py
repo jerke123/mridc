@@ -6,7 +6,6 @@ import contextlib
 from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
-import numba as nb
 import torch
 
 
@@ -459,121 +458,261 @@ class Poisson2DMaskFunc(MaskFunc):
 
         return (torch.from_numpy(mask.reshape(dims).astype(np.float32)), self.accel)
 
-    def poisson_disc2d(self):
-        # From https://github.com/mikgroup/sigpy/blob/master/sigpy/mri/samp.py
-        """Generate variable-density Poisson-disc sampling pattern.
-        The function generates a variable density Poisson-disc sampling
-        mask with density proportional to :math:`1 / (1 + s |r|)`,
-        where :math:`r` represents the k-space radius, and :math:`s`
-        represents the slope. A binary search is performed on the slope :math:`s`
-        such that the resulting acceleration factor is close to the
-        prescribed acceleration factor `accel`. The parameter `tol`
-        determines how much they can deviate.
-        References:
-            Bridson, Robert. "Fast Poisson disk sampling in arbitrary dimensions."
-            SIGGRAPH sketches. 2007.
+    class Poisson2DMaskFunc(MaskFunc):
         """
-        ny, nx = self.shape
-        y, x = np.mgrid[:ny, :nx]
-        x = np.maximum(abs(x - self.shape[-1] / 2) / 2, 0)
-        x /= x.max()
-        y = np.maximum(abs(y - self.shape[-2] / 2) / 2, 0)
-        y /= y.max()
-        center = self.centered_circle()
-        r = np.sqrt(x ** 2 + y ** 2)
+        Creates a 2D sub-sampling mask of a given shape.
+        For autocalibration purposes, data points near the k-space center will be fully sampled within an ellipse of which
+        the half-axes will set to the set scale % of the fully sampled region. The remaining points will be sampled
+        according to a (variable density) Poisson distribution.
+        For a given acceleration factor to be accurate, the scale for the fully sampled center should remain at the default
+        0.02. A predefined list is used to convert the acceleration factor to the appropriate r parameter needed for the
+        variable density calculation. This list has been made to accommodate acceleration factors of 4 up to 21, rounding
+        off to the nearest one available. As such, acceleration factors outside this range cannot be used.
+        """
 
-        slope_max = max(nx, ny)
-        slope_min = 0
-        while slope_min < slope_max:
-            slope = (slope_max + slope_min) / 2
-            radius_x = np.clip((1 + r * slope) * nx / max(nx, ny), 1, None)
-            radius_y = np.clip((1 + r * slope) * ny / max(nx, ny), 1, None)
-            mask = self._poisson(self.shape, [radius_x,radius_y])
-            mask = np.logical_or(mask, center)
-            actual_accel = self.shape[-1] * self.shape[-2] / np.sum(mask)
-            if abs(actual_accel - self.accel) < self.tol:
-                break
-            if actual_accel < self.accel:
-                slope_min = slope
-            else:
-                slope_max = slope
+        def __call__(
+                self,
+                shape: Union[Sequence[int], np.ndarray],
+                seed: Optional[Union[int, Tuple[int, ...]]] = None,
+                half_scan_percentage: Optional[float] = 0.0,
+                scale: Optional[float] = 0.02,
+        ) -> Tuple[torch.Tensor, int]:
+            """
+            Args:
+                shape: The shape of the mask to be created. The shape should have at least 3 dimensions. Samples are drawn
+                    along the second last dimension.
+                seed: Seed for the random number generator. Setting the seed ensures the same mask is generated each time
+                    for the same shape. The random state is reset afterwards.
+                half_scan_percentage: Optional; Defines a fraction of the k-space data that is not sampled.
+                scale: For autocalibration purposes, data points near the k-space center will be fully sampled within an
+                    ellipse of which the half-axes will set to the set scale % of the fully sampled region
+            Returns:
+                A tuple of the mask and the number of columns selected.
+            """
+            dims = [1 for _ in shape]
+            self.shape = tuple(shape[-3:-1])
+            dims[-3:-1] = self.shape
 
-        if abs(actual_accel - self.accel) >= self.tol:
-            raise ValueError(f'Cannot generate mask to satisfy accel={self.accel} using scale={self.scale}.')
+            _, acceleration = self.choose_acceleration()
+            if acceleration > 21.5 or acceleration < 3.5:
+                raise ValueError(f"Acceleration {acceleration} is not supported for Poisson 2D masking.")
 
-        return mask
+            self.acceleration = acceleration
+            self.scale = scale
 
-    # Define the mask generation as a static method to utilise numba.jit
-    @staticmethod
-    @nb.jit(nopython=True, cache=True)  # pragma: no cover
-    def _poisson(n_shape, radius):
-        ny, nx = n_shape
-        radius_x, radius_y = radius
+            # TODO: consider moving this to a yaml file
+            rfactor = [
+                21.22,
+                20.32,
+                19.06,
+                18.22,
+                17.41,
+                16.56,
+                15.86,
+                15.12,
+                14.42,
+                13.88,
+                13.17,
+                12.76,
+                12.21,
+                11.72,
+                11.09,
+                10.68,
+                10.35,
+                10.02,
+                9.61,
+                9.22,
+                9.03,
+                8.66,
+                8.28,
+                8.1,
+                7.74,
+                7.62,
+                7.32,
+                7.04,
+                6.94,
+                6.61,
+                6.5,
+                6.27,
+                6.15,
+                5.96,
+                5.83,
+                5.59,
+                5.46,
+                5.38,
+                5.15,
+                5.05,
+                4.9,
+                4.86,
+                4.67,
+                4.56,
+                4.52,
+                4.41,
+                4.31,
+                4.21,
+                4.11,
+                3.99,
+            ]
+            self.r = min(range(len(rfactor)), key=lambda i: abs(rfactor[i] - self.acceleration)) + 40
 
-        mask = np.zeros((ny, nx))
+            pattern1 = self.poisson_disc2d()
+            pattern2 = self.centered_circle()
+            mask = np.logical_or(pattern1, pattern2)
 
-        # initialize active list
-        pxs = np.empty(nx * ny, np.int32)
-        pys = np.empty(nx * ny, np.int32)
-        pxs[0] = np.random.randint(0, nx)
-        pys[0] = np.random.randint(0, ny)
-        num_actives = 1
-        while num_actives > 0:
-            i = np.random.randint(0, num_actives)
-            px = pxs[i]
-            py = pys[i]
-            rx = radius_x[py, px]
-            ry = radius_y[py, px]
+            if half_scan_percentage != 0:
+                mask[: int(np.round(mask.shape[0] * half_scan_percentage)), :] = 0.0
 
-            # Attempt to generate point
-            done = False
-            k = 0
-            while not done and k < 30:
-                # Generate point randomly from r and 2 * r
-                v = (np.random.random() * 3 + 1) ** 0.5
-                t = 2 * np.pi * np.random.random()
-                qx = px + v * rx * np.cos(t)
-                qy = py + v * ry * np.sin(t)
+            return (torch.from_numpy(mask.reshape(dims).astype(np.float32)), acceleration)
 
-                # Reject if outside grid or close to other points
-                if qx >= 0 and qx < nx and qy >= 0 and qy < ny:
-                    startx = max(int(qx - rx), 0)
-                    endx = min(int(qx + rx + 1), nx)
-                    starty = max(int(qy - ry), 0)
-                    endy = min(int(qy + ry + 1), ny)
+        def poisson_disc2d(self):
+            """Creates a 2D Poisson disc pattern."""
+            # Amount of tries before discarding a reference point for new samples
+            k = 10
 
-                    done = True
-                    for x in range(startx, endx):
-                        for y in range(starty, endy):
-                            if (mask[y, x] == 1
-                                    and (((qx - x) / radius_x[y, x]) ** 2 +
-                                         ((qy - y) / (radius_y[y, x])) ** 2 < 1)):
-                                done = False
-                                break
+            # Amount of samples to be drawn
+            pattern_shape = (self.shape[0] - 1, self.shape[1] - 1)
 
-                k += 1
+            # Initialize the pattern
+            center = np.array([1.0 * pattern_shape[0] / 2, 1.0 * pattern_shape[1] / 2])
+            width, height = pattern_shape
 
-            # Add point if done else remove from active list
-            if done:
-                pxs[num_actives] = qx
-                pys[num_actives] = qy
-                mask[int(qy), int(qx)] = 1
-                num_actives += 1
-            else:
-                pxs[i] = pxs[num_actives - 1]
-                pys[i] = pys[num_actives - 1]
-                num_actives -= 1
+            # Cell side length (equal to r_min)
+            a = 1
 
-        return mask
+            # Number of cells in the x- and y-directions of the grid
+            nx, ny = int(width / a), int(height / a)
 
-    def centered_circle(self):
-        """Creates a boolean centered circle image using the (width) scale as a radius."""
-        center_x = int((self.shape[0] - 1) / 2)
-        center_y = int((self.shape[1] - 1) / 2)
+            # A list of coordinates in the grid of cells
+            coords_list = [(ix, iy) for ix in range(nx + 1) for iy in range(ny + 1)]
 
-        X, Y = np.indices(self.shape)
-        radius = int(self.shape[0] * self.scale)
-        return ((X - center_x) ** 2 + (Y - center_y) ** 2) < radius**2
+            # Initialize the dictionary of cells: each key is a cell's coordinates, the corresponding value is the index
+            # of that cell's point's that might cause conflict when adding a new point.
+            cells = {coords: [] for coords in coords_list}
+            centernorm = np.linalg.norm(center)
+
+            def calc_r(coords):
+                """Calculate r for the given coordinates."""
+                return ((np.linalg.norm(np.asarray(coords) - center) / centernorm) * 240 + 50) / self.r
+
+            def get_cell_coords(pt):
+                """Get the coordinates of the cell that pt = (x,y) falls in."""
+                return int(np.floor_divide(pt[0], a)), int(np.floor_divide(pt[1], a))
+
+            def mark_neighbours(idx):
+                """Add sample index to the cells within r(point) range of the point."""
+                coords = samples[idx]
+                if idx in cells[get_cell_coords(coords)]:
+                    # This point is already marked on the grid, so we can skip
+                    return
+
+                # Mark the point on the grid
+                rx = calc_r(coords)
+                xvals = np.arange(coords[0] - rx, coords[0] + rx)
+                yvals = np.arange(coords[1] - rx, coords[1] + rx)
+
+                # Get the coordinates of the cells that the point falls in
+                xvals = xvals[(xvals >= 0) & (xvals <= width)]
+                yvals = yvals[(yvals >= 0) & (yvals <= height)]
+
+                def dist(x, y):
+                    """Calculate the distance between the point and the cell."""
+                    return np.sqrt((coords[0] - x) ** 2 + (coords[1] - y) ** 2) < rx
+
+                xx, yy = np.meshgrid(xvals, yvals, sparse=False)
+
+                # Mark the points in the grid
+                pts = np.vstack((xx.ravel(), yy.ravel())).T
+                pts = pts[dist(pts[:, 0], pts[:, 1])]
+
+                return [cells[get_cell_coords(pt)].append(idx) for pt in pts]
+
+            def point_valid(pt):
+                """Check if the point is valid."""
+                rx = calc_r(pt)
+                if rx < 1:
+                    if np.linalg.norm(pt - center) < self.scale * width:
+                        return False
+                    rx = 1
+
+                # Get the coordinates of the cells that the point falls in
+                neighbour_idxs = cells[get_cell_coords(pt)]
+                for n in neighbour_idxs:
+                    n_coords = samples[n]
+
+                    # Squared distance between or candidate point, pt, and this nearby_pt.
+                    distance = np.sqrt((n_coords[0] - pt[0]) ** 2 + (n_coords[1] - pt[1]) ** 2)
+                    if distance < rx:
+                        # The points are too close, so pt is not a candidate.
+                        return False
+
+                # All points tested: if we're here, pt is
+                return True
+
+            def get_point(k, refpt):
+                """
+                Try to find a candidate point relative to refpt to emit in the sample. We draw up to k points from the
+                annulus of inner radius r, outer radius 2r around the reference point, refpt. If none of them are suitable
+                return False. Otherwise, return the pt.
+                """
+                i = 0
+                rx = calc_r(refpt)
+                while i < k:
+                    rho, theta = np.random.uniform(rx, 2 * rx), np.random.uniform(0, 2 * np.pi)
+                    pt = refpt[0] + rho * np.cos(theta), refpt[1] + rho * np.sin(theta)
+                    if not (0 < pt[0] < width and 0 < pt[1] < height):
+                        # Off the grid, try again.
+                        continue
+                    if point_valid(pt):
+                        return pt
+                    i += 1
+
+                # We failed to find a suitable point in the vicinity of refpt.
+                return False
+
+            # Pick a random point to start with.
+            pt = (np.random.uniform(0, width), np.random.uniform(0, height))
+            samples = [pt]
+            cursample = 0
+            mark_neighbours(0)
+
+            # Set active, in the sense that we're going to look for more points in its neighbourhood.
+            active = [0]
+
+            # As long as there are points in the active list, keep trying to find samples.
+            while active:
+                # choose a random "reference" point from the active list.
+                idx = np.random.choice(active)
+                refpt = samples[idx]
+
+                # Try to pick a new point relative to the reference point.
+                pt = get_point(k, refpt)
+                if pt:
+                    # Point pt is valid: add it to the samples list and mark it as active
+                    samples.append(pt)
+                    cursample += 1
+                    active.append(cursample)
+                    mark_neighbours(cursample)
+                else:
+                    # We had to give up looking for valid points near refpt, so remove it from the list of "active" points.
+                    active.remove(idx)
+
+            samples = np.rint(np.array(samples)).astype(int)
+            samples = np.unique(samples[:, 0] + 1j * samples[:, 1])
+            samples = np.column_stack((samples.real, samples.imag)).astype(int)
+
+            poisson_pattern = np.zeros((pattern_shape[0] + 1, pattern_shape[1] + 1), dtype=bool)
+            poisson_pattern[samples[:, 0], samples[:, 1]] = True
+
+            return poisson_pattern
+
+        def centered_circle(self):
+            """Creates a boolean centered circle image using the scale as a radius."""
+            center_x = int((self.shape[0] - 1) / 2)
+            center_y = int((self.shape[1] - 1) / 2)
+
+            X, Y = np.indices(self.shape)
+            radius = int(self.shape[0] * self.scale)
+            return ((X - center_x) ** 2 + (Y - center_y) ** 2) < radius ** 2
 
 
 def create_mask_for_mask_type(
