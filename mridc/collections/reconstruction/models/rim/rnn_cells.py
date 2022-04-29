@@ -564,5 +564,4 @@ class IndRNNCell(IndRNNCellBase):
             _input = _input.unsqueeze(0)
             hx = hx.permute(1, 0, 2, 3).unsqueeze(0)
 
-
         return nn.ReLU()(self.ih(_input) + self.hh * hx)

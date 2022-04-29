@@ -205,7 +205,9 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
     def log_image(self, name, image):
         """Log an image."""
         # TODO: Add support for wandb logging
-        if image.shape[0] != 1:
+        if image.dim() > 3:
+            image = image[0, 0, :, :].unsqueeze(0)
+        elif image.shape[0] != 1:
             image = image[0].unsqueeze(0)
         self.logger.experiment.add_image(name, image, global_step=self.global_step)
 

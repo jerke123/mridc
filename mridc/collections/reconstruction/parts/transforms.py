@@ -137,7 +137,8 @@ class MRIDataTransforms:
 
         # TODO: add RSS target option
         if sensitivity_map is not None and sensitivity_map.size != 0:
-            target = torch.sum(complex_mul(ifft2c(kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims), complex_conj(sensitivity_map)), self.coil_dim)
+            target = torch.sum(complex_mul(ifft2c(kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims),
+                                           complex_conj(sensitivity_map)), self.coil_dim)
             target = torch.view_as_complex(target)
         elif target is not None and target.size != 0:
             target = to_tensor(target)
@@ -163,22 +164,30 @@ class MRIDataTransforms:
 
             # Check for smallest size against the stored recon shape in metadata.
             if crop_size[0] != 0:
-                h = h if h <= crop_size[0] else crop_size[0]
+                h = h if h <= crop_size[-2] else crop_size[-2]
             if crop_size[1] != 0:
-                w = w if w <= crop_size[1] else crop_size[1]
+                w = w if w <= crop_size[-1] else crop_size[-1]
 
             self.crop_size = (int(h), int(w))
 
             target = center_crop(target, self.crop_size)
             if sensitivity_map is not None and sensitivity_map.size != 0:
-                sensitivity_map = (ifft2c(complex_center_crop(fft2c(sensitivity_map, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size), fft_type=self.fft_type, fft_dim=self.spatial_dims) if self.kspace_crop else complex_center_crop(sensitivity_map, self.crop_size))
+                sensitivity_map = (ifft2c(complex_center_crop(fft2c(
+                    sensitivity_map, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size),
+                    fft_type=self.fft_type,
+                    fft_dim=self.spatial_dims) if self.kspace_crop else complex_center_crop(sensitivity_map,
+                                                                                            self.crop_size))
 
             if eta is not None and eta.ndim > 2:
-                eta = (ifft2c(complex_center_crop(fft2c(eta, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size), fft_type=self.fft_type, fft_dim=self.spatial_dims) if self.kspace_crop else complex_center_crop(eta, self.crop_size))
+                eta = (ifft2c(complex_center_crop(fft2c(
+                    eta, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size), fft_type=self.fft_type,
+                    fft_dim=self.spatial_dims) if self.kspace_crop else complex_center_crop(eta, self.crop_size))
 
         # Cropping before masking will maintain the shape of original kspace intact for masking.
         if self.crop_size is not None and self.crop_size not in ("", "None") and self.crop_before_masking:
-            kspace = (complex_center_crop(kspace, self.crop_size) if self.kspace_crop else fft2c(complex_center_crop(ifft2c(kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size), fft_type=self.fft_type, fft_dim=self.spatial_dims))
+            kspace = (complex_center_crop(kspace, self.crop_size) if self.kspace_crop else fft2c(complex_center_crop(
+                ifft2c(kspace, fft_type=self.fft_type, fft_dim=self.spatial_dims), self.crop_size),
+                fft_type=self.fft_type, fft_dim=self.spatial_dims))
 
         if self.mask_func is not None:
             # Check for multiple masks/accelerations.

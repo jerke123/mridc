@@ -172,9 +172,7 @@ class CIRIM(BaseMRIReconstructionModel, ABC):
                     torch.abs(y / torch.max(torch.abs(y))).unsqueeze(dim=1),
                     data_range=torch.tensor(max_value).unsqueeze(dim=0).to(x.device),
                 )
-
         else:
-
             def loss_fn(x, y):
                 """Calculate other loss."""
                 return _loss_fn(x, torch.abs(y / torch.max(torch.abs(y))))
