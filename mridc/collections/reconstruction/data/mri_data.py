@@ -198,6 +198,7 @@ class FastMRISliceDataset(Dataset):
             files = list(Path(root).iterdir())
             for fname in sorted(files):
                 metadata, num_slices = self._retrieve_metadata(fname)
+                num_slices = num_slices - (consecutive_slices-1)
                 self.examples += [(fname, slice_ind, metadata) for slice_ind in range(num_slices)]
 
             if dataset_cache.get(root) is None and use_dataset_cache:
@@ -306,9 +307,14 @@ class FastMRISliceDataset(Dataset):
         if self.consecutive_slices > num_slices:
             return np.stack(data, axis=0)
 
-        rng = np.random.RandomState()
-        start_slice = rng.randint(0, num_slices - self.consecutive_slices)
-        end_slice = start_slice + self.consecutive_slices
+        # rng = np.random.RandomState()
+        # start_slice = rng.randint(0, num_slices - self.consecutive_slices)
+        # end_slice = start_slice + self.consecutive_slices
+        start_slice = dataslice
+        if dataslice+self.consecutive_slices <= num_slices:
+            end_slice = dataslice+self.consecutive_slices
+        else:
+            end_slice = num_slices
 
         d = [data[i] for i in range(start_slice, end_slice)]
         d = np.stack(d, axis=0)
@@ -347,6 +353,11 @@ class FastMRISliceDataset(Dataset):
             if "reconstruction_sense" in hf:
                 self.recons_key = "reconstruction_sense"
 
+            # if "max_val" in hf:
+            #     mip_val = np.asarray(hf, "max_val")
+            # else:
+            #     mip_val = 1.
+
             eta = self.get_consecutive_slices(hf, "eta", dataslice).astype(np.complex64) if "eta" in hf else np.array([])
             target = self.get_consecutive_slices(hf, self.recons_key, dataslice).astype(np.float32) if self.recons_key in hf else None
 
@@ -371,6 +382,7 @@ class FastMRISliceDataset(Dataset):
                 attrs,
                 fname.name,
                 dataslice,
+                # mip_val
             )
             if self.transform is None
             else self.transform(
@@ -382,5 +394,6 @@ class FastMRISliceDataset(Dataset):
                 attrs,
                 fname.name,
                 dataslice,
+                # mip_val
             )
         )
