@@ -192,13 +192,25 @@ class FastMRISliceDataset(Dataset):
         else:
             dataset_cache = {}
 
+        if consecutive_slices is None:
+            self.consecutive_slices = 1
+        else:
+            if consecutive_slices < 1:
+                raise ValueError(
+                    "consecutive_slices value is out of range, must be > 0."
+                )
+            self.consecutive_slices = consecutive_slices
+
+
         # check if our dataset is in the cache
         # if there, use that metadata, if not, then regenerate the metadata
         if dataset_cache.get(root) is None or not use_dataset_cache:
             files = list(Path(root).iterdir())
             for fname in sorted(files):
                 metadata, num_slices = self._retrieve_metadata(fname)
-                num_slices = num_slices - (consecutive_slices-1)
+                num_slices = num_slices - (self.consecutive_slices-1)
+                if num_slices < 1:
+                    num_slices = 1
                 self.examples += [(fname, slice_ind, metadata) for slice_ind in range(num_slices)]
 
             if dataset_cache.get(root) is None and use_dataset_cache:
@@ -224,16 +236,6 @@ class FastMRISliceDataset(Dataset):
 
         if num_cols:
             self.examples = [ex for ex in self.examples if ex[2]["encoding_size"][1] in num_cols]  # type: ignore
-
-        # Calculate amount of slices after subsampling
-        self.num_slices = len(self.examples)
-
-        # Create random number generator used for consecutive slice selection and set consecutive slice amount
-        self.consecutive_slices = consecutive_slices
-        if self.consecutive_slices < 1:
-            raise ValueError(
-                "consecutive_slices value is out of range, must be > 0."
-            )
 
     @staticmethod
     def _retrieve_metadata(fname):
@@ -307,14 +309,8 @@ class FastMRISliceDataset(Dataset):
         if self.consecutive_slices > num_slices:
             return np.stack(data, axis=0)
 
-        # rng = np.random.RandomState()
-        # start_slice = rng.randint(0, num_slices - self.consecutive_slices)
-        # end_slice = start_slice + self.consecutive_slices
         start_slice = dataslice
-        if dataslice+self.consecutive_slices <= num_slices:
-            end_slice = dataslice+self.consecutive_slices
-        else:
-            end_slice = num_slices
+        end_slice = dataslice+self.consecutive_slices
 
         d = [data[i] for i in range(start_slice, end_slice)]
         d = np.stack(d, axis=0)

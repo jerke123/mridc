@@ -369,7 +369,7 @@ class Gaussian2DMaskFunc(MaskFunc):
         if half_scan_percentage != 0:
             mask[: int(np.round(mask.shape[0] * half_scan_percentage)), :] = 0.0
 
-        return torch.from_numpy(mask.reshape(dims).astype(np.float32)), acceleration
+        return (torch.from_numpy(mask.reshape(dims).astype(np.float32)), acceleration)
 
     def gaussian_kspace(self):
         """

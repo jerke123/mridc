@@ -67,12 +67,12 @@ def ifft2c(
         fft_dim = [-2, -1]
 
     if fft_type == "orthogonal":
-        data = ifftshift(data, dim=[-3, -2])
+        data = ifftshift(data, dim=[-3, -2, -1])
 
     data = torch.view_as_real(torch.fft.ifft2(torch.view_as_complex(data), dim=fft_dim, norm=fft_normalization))
 
     if fft_type == "orthogonal":
-        data = fftshift(data, dim=[-3, -2])
+        data = fftshift(data, dim=[-3, -2, -1])
 
     return data
 

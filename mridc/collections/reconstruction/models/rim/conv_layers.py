@@ -3,7 +3,7 @@ __author__ = "Dimitrios Karkalousos"
 
 import torch
 import torch.nn as nn
-
+import numpy as np
 
 class ConvRNNStack(nn.Module):
     """A stack of convolutional RNNs."""
@@ -63,12 +63,6 @@ class ConvNonlinear(nn.Module):
         else:
             raise ValueError("Please specify a proper nonlinearity")
 
-        self.padding = [
-            torch.nn.ReplicationPad1d(torch.div(dilation * (kernel_size - 1), 2, rounding_mode="trunc").item()),
-            torch.nn.ReplicationPad2d(torch.div(dilation * (kernel_size - 1), 2, rounding_mode="trunc").item()),
-            torch.nn.ReplicationPad3d(torch.div(dilation * (kernel_size - 1), 2, rounding_mode="trunc").item()),
-        ][conv_dim - 1]
-
         self.conv_layer = self.conv_class(
             in_channels=input_size,
             out_channels=features,
@@ -77,6 +71,18 @@ class ConvNonlinear(nn.Module):
             dilation=dilation,
             bias=bias,
         )
+
+        if type(kernel_size) is tuple:
+            pad_dim = (int((dilation * (kernel_size[0] - 1))/2), int((dilation * (kernel_size[1] - 1))/2),
+                       int((dilation * (kernel_size[2] - 1))/2),)
+            pad_dim = tuple(np.repeat(pad_dim,2))
+            self.padding = torch.nn.ReplicationPad3d(pad_dim)
+        else:
+            self.padding = [
+                torch.nn.ReplicationPad1d(torch.div(dilation * (kernel_size - 1), 2, rounding_mode="trunc").item()),
+                torch.nn.ReplicationPad2d(torch.div(dilation * (kernel_size - 1), 2, rounding_mode="trunc").item()),
+                torch.nn.ReplicationPad3d(torch.div(dilation * (kernel_size - 1), 2, rounding_mode="trunc").item()),
+            ][conv_dim - 1]
 
         self.reset_parameters()
 

@@ -73,15 +73,37 @@ class RIMBlock(torch.nn.Module):
             conv_layer = None
 
             if conv_features != 0:
-                conv_layer = ConvNonlinear(
-                    self.input_size,
-                    conv_features,
-                    conv_dim=conv_dim,
-                    kernel_size=conv_k_size,
-                    dilation=conv_dilation,
-                    bias=l_conv_bias,
-                    nonlinear=nonlinear,
-                )
+                if conv_dim == 3:
+                    conv_layer = torch.nn.Sequential(
+                                        ConvNonlinear(
+                                            self.input_size,
+                                            self.input_size,
+                                            conv_dim=conv_dim,
+                                            kernel_size=(1, conv_k_size, conv_k_size),
+                                            dilation=conv_dilation,
+                                            bias=l_conv_bias,
+                                            nonlinear=nonlinear,
+                                        ),
+                                        ConvNonlinear(
+                                            self.input_size,
+                                            conv_features,
+                                            conv_dim=conv_dim,
+                                            kernel_size=(conv_k_size, conv_k_size, 1),
+                                            dilation=conv_dilation,
+                                            bias=l_conv_bias,
+                                            nonlinear=nonlinear,
+                                        )
+                                )
+                else:
+                    conv_layer = ConvNonlinear(
+                        self.input_size,
+                        conv_features,
+                        conv_dim=conv_dim,
+                        kernel_size=conv_k_size,
+                        dilation=conv_dilation,
+                        bias=l_conv_bias,
+                        nonlinear=nonlinear,
+                    )
                 self.input_size = conv_features
 
             if rnn_features != 0 and rnn_type is not None:
@@ -107,7 +129,10 @@ class RIMBlock(torch.nn.Module):
 
                 self.layers.append(ConvRNNStack(conv_layer, rnn_layer))
 
-        self.final_layer = torch.nn.Sequential(conv_layer)
+        if conv_dim == 3:
+            self.final_layer = conv_layer
+        else:
+            self.final_layer = torch.nn.Sequential(conv_layer)
 
         self.recurrent_filters = recurrent_filters
         self.fft_type = fft_type
@@ -115,7 +140,6 @@ class RIMBlock(torch.nn.Module):
         self.dimensionality = dimensionality
         self.spatial_dims = [2, 3]  # if self.dimensionality == 2 else [3, 4]
         self.coil_dim = 1  # if self.dimensionality == 2 else 2
-
         self.no_dc = no_dc
 
         if not self.no_dc:
