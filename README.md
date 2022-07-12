@@ -12,8 +12,8 @@
 
 ❗This is a fork from the original MRIDC repo, expanding on 3 things:
 
-- Made the RIM able to accept 3D data (for a batch size of 1). To use this, use the parameter consec_slices > 1
-- Included 2.5D convolutions for the (CI)RIM. This turns convolutional filter from a single 2D filter to 2 sequential 2D filters, one in-plane and one with the same dimensions in slice dimension and height. To make use
+- Made the RIM able to accept 3D data (for a batch size of 1). To use this, use the parameter consec_slices > 1.
+- Included 2.5D convolutions for the (CI)RIM. This turns convolutional filter from a single 2D filter to 2 sequential 2D filters, one in-plane and one with the same dimensions in slice dimension and height. To use this feature, set dimensionality to 3.
 - Included varialbe density poisson masking as an undersampling technique. To use this, use poisson2d as mask type.
 
 **Data Consistency (DC) is crucial for generalization in multi-modal MRI data and robustness in detecting pathology.**
