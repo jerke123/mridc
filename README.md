@@ -10,7 +10,7 @@
 
 ---
 
-❗This is a fork from the original MRIDC repo, expanding on 2 things:
+❗This is a fork from the original MRIDC repo, expanding on 3 things:
 
 - Made the RIM able to accept 3D data (for a batch size of 1). To use this, use the parameter consec_slices > 1
 - Included 2.5D convolutions for the RIM. This turns convolutional filter from a single 2D filter to 2 sequential 2D filters, one in-plane and one with the same dimensions in slice dimension and height. To make use
