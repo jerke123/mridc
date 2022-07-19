@@ -289,6 +289,7 @@ class BaseMRIReconstructionModel(ModelPT, ABC):
             ),
             sample_rate=cfg.get("sample_rate"),
             consecutive_slices=cfg.get("consecutive_slices"),
+            dimensionality=cfg.get("dimensionality"),
         )
         if cfg.shuffle:
             sampler = torch.utils.data.RandomSampler(dataset)

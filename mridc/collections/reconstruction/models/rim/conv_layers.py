@@ -73,9 +73,9 @@ class ConvNonlinear(nn.Module):
         )
 
         if type(kernel_size) is tuple:
-            pad_dim = (int((dilation * (kernel_size[0] - 1))/2), int((dilation * (kernel_size[1] - 1))/2),
-                       int((dilation * (kernel_size[2] - 1))/2),)
-            pad_dim = tuple(np.repeat(pad_dim,2))
+            pad_dim = (int((dilation * (kernel_size[0] - 1)) / 2), int((dilation * (kernel_size[1] - 1)) / 2),
+                       int((dilation * (kernel_size[2] - 1)) / 2),)
+            pad_dim = tuple(np.repeat(pad_dim, 2))
             self.padding = torch.nn.ReplicationPad3d(pad_dim)
         else:
             self.padding = [
@@ -86,6 +86,7 @@ class ConvNonlinear(nn.Module):
 
         self.reset_parameters()
 
+
     def reset_parameters(self):
         """
         Resets the parameters of the convolutional layer.
@@ -93,10 +94,21 @@ class ConvNonlinear(nn.Module):
         Returns:
             None.
         """
-        torch.nn.init.kaiming_normal_(self.conv_layer.weight, nonlinearity="relu")
+        if self.conv_dim == 3:
+            self.conv_layer.apply(self.init_3dseq_weights)
+        else:
+            torch.nn.init.kaiming_normal_(self.conv_layer.weight, nonlinearity="relu")
 
-        if self.conv_layer.bias is not None:
-            nn.init.zeros_(self.conv_layer.bias)
+            if self.conv_layer.bias is not None:
+                nn.init.zeros_(self.conv_layer.bias)
+
+    @staticmethod
+    def init_3dseq_weights(m):
+        if type(m) == nn.Conv3d:
+            torch.nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
 
     @staticmethod
     def determine_conv_class(n_dim):

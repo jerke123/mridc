@@ -136,6 +136,7 @@ class FastMRISliceDataset(Dataset):
         num_cols: Optional[Tuple[int]] = None,
         mask_root: Union[str, Path, os.PathLike] = None,
         consecutive_slices: Optional[int] = 1,
+        dimensionality: Optional[int] = 2,
     ):
         """
         Args:
@@ -200,7 +201,7 @@ class FastMRISliceDataset(Dataset):
                     "consecutive_slices value is out of range, must be > 0."
                 )
             self.consecutive_slices = consecutive_slices
-
+        self.dimensionality = dimensionality
 
         # check if our dataset is in the cache
         # if there, use that metadata, if not, then regenerate the metadata
@@ -303,7 +304,10 @@ class FastMRISliceDataset(Dataset):
         data = data[key]
 
         if self.consecutive_slices == 1:
-            return data[dataslice]
+            if self.dimensionality == 2:
+                return data[dataslice]
+            else:
+                return np.expand_dims(data[dataslice],0)
 
         num_slices = data.shape[0]
         if self.consecutive_slices > num_slices:

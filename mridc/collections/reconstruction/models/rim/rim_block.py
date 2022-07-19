@@ -75,25 +75,25 @@ class RIMBlock(torch.nn.Module):
             if conv_features != 0:
                 if conv_dim == 3:
                     conv_layer = torch.nn.Sequential(
-                                        ConvNonlinear(
-                                            self.input_size,
-                                            self.input_size,
-                                            conv_dim=conv_dim,
-                                            kernel_size=(1, conv_k_size, conv_k_size),
-                                            dilation=conv_dilation,
-                                            bias=l_conv_bias,
-                                            nonlinear=nonlinear,
-                                        ),
-                                        ConvNonlinear(
-                                            self.input_size,
-                                            conv_features,
-                                            conv_dim=conv_dim,
-                                            kernel_size=(conv_k_size, conv_k_size, 1),
-                                            dilation=conv_dilation,
-                                            bias=l_conv_bias,
-                                            nonlinear=nonlinear,
-                                        )
-                                )
+                        ConvNonlinear(
+                            self.input_size,
+                            self.input_size,
+                            conv_dim=conv_dim,
+                            kernel_size=(1, conv_k_size, conv_k_size),
+                            dilation=conv_dilation,
+                            bias=l_conv_bias,
+                            nonlinear=nonlinear,
+                        ),
+                        ConvNonlinear(
+                            self.input_size,
+                            conv_features,
+                            conv_dim=conv_dim,
+                            kernel_size=(conv_k_size, conv_k_size, 1),
+                            dilation=conv_dilation,
+                            bias=l_conv_bias,
+                            nonlinear=nonlinear,
+                        )
+                    )
                 else:
                     conv_layer = ConvNonlinear(
                         self.input_size,
@@ -174,7 +174,7 @@ class RIMBlock(torch.nn.Module):
         -------
             Reconstructed image and hidden states.
         """
-        if self.dimensionality == 3:
+        if len(pred.shape) > 5:
             batch, slices = masked_kspace.shape[0], masked_kspace.shape[1]
             # 2D pred.shape = [batch, coils, height, width, 2]
             # 3D pred.shape = [batch, slices, coils, height, width, 2] -> [batch * slices, coils, height, width, 2]

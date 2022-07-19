@@ -178,7 +178,10 @@ def evaluate(
                 recons = recons[reconstruction_key][()]
 
                 if recons.ndim == 4:
-                    recons = recons.squeeze(1)
+                    recons = recons[:,0,:,:]
+
+                if len(recons) < len(target):
+                    target = target[:len(recons)]
 
                 if arguments.crop_size is not None:
                     crop_size = arguments.crop_size
@@ -208,7 +211,7 @@ def evaluate(
 
                 for sl in range(target.shape[0]):
                     target[sl] = target[sl] / np.max(np.abs(target[sl]))
-                    recons[sl] = recons[sl] / np.max(np.abs(recons[sl]))
+                    recons[sl] = np.nan_to_num(recons[sl] / np.max(np.abs(recons[sl])))
 
                 target = np.abs(target)
                 recons = np.abs(recons)
