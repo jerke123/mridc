@@ -16,6 +16,8 @@
 - Included 2.5D convolutions for the (CI)RIM. This turns convolutional filter from a single 2D filter to 2 sequential 2D filters, one in-plane and one with the same dimensions in slice dimension and height. To use this feature, set dimensionality to 3.
 - Included varialbe density poisson masking as an undersampling technique. To use this, use poisson2d as mask type.
 
+Additionally, this repo contains Thesis material used and described in the paper for reference of implementation.
+
 **Data Consistency (DC) is crucial for generalization in multi-modal MRI data and robustness in detecting pathology.**
 
 This repo implements the following reconstruction methods:
