@@ -66,7 +66,7 @@ end
 if doPreproc==1
     disp('loading senseref.cpx and applying transforms');
     C=MRecon(ref);
-    C2=MRsense('st_19012022_2106460_1000_5_senserefscanV4.raw',r);
+    C2=MRsense('..._senserefscanV4.raw',r);
     C2.OutputSizeReformated=size(r.Data);
     C2.OutputSizeSensitivity=C2.OutputSizeReformated;
     C2.Mask = 1;
