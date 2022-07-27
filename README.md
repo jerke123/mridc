@@ -19,7 +19,10 @@
 Additionally, this repo contains Thesis material used and described in the paper for reference of implementation, aswell as the Thesis PDF document itself.
 
 A comparison of the Poisson masking compared with conventional Gaussian datamasking:
+
 ![alt text](https://github.com/jerke123/mridc/blob/main/thesis%20material/gaussian-poisson-comp.png?raw=true)
+
+(Row A: Poisson undersampled test. Row B: Gaussian undersampled test)
 
 **Data Consistency (DC) is crucial for generalization in multi-modal MRI data and robustness in detecting pathology.**
 
